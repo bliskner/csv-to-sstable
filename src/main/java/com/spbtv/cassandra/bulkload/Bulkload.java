@@ -25,6 +25,7 @@ import org.supercsv.io.CsvListReader;
 import org.supercsv.prefs.CsvPreference;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.dht.Murmur3Partitioner;
+import org.apache.cassandra.dht.RandomPartitioner;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.io.sstable.CQLSSTableWriter;
 
@@ -121,6 +122,8 @@ public class Bulkload {
 				return Float.parseFloat(value);
 			case "int":
 				return Integer.parseInt(value);
+			case "bigint":
+				return Long.parseLong(value);
 			case "timestamp":
 				return new Date(Long.parseLong(value));
 			case "boolean":
@@ -170,6 +173,13 @@ public class Bulkload {
 				throw new RuntimeException("Cannot parse provided csv prefs: " + args[4] + ".");
 			}
 		}
+
+		String insert_options = "";
+		// grabbing cql insert options like ttl and timestamp
+		if (args.length >= 6){
+			insert_options = args[5];
+		}
+		
 		
 		String schema = null;
 		try {
@@ -204,7 +214,7 @@ public class Bulkload {
 			String insert_stmt = String.format("INSERT INTO %s.%s ("
 					+ Joiner.on(", ").join(header)
 					+ ") VALUES (" + new String(new char[header.length - 1]).replace("\0", "?, ")
-					+ "?)", keyspace, table);
+					+ "?) %s", keyspace, table, insert_options);
 
 			// Prepare SSTable writer
 			CQLSSTableWriter.Builder builder = CQLSSTableWriter.builder();
@@ -217,7 +227,9 @@ public class Bulkload {
 					// set partitioner if needed
 					// default is Murmur3Partitioner so set if you use different
 					// one.
-					.withPartitioner(new Murmur3Partitioner());
+					// .withPartitioner(new Murmur3Partitioner());
+					.withPartitioner(new RandomPartitioner());
+
 			CQLSSTableWriter writer = builder.build();
 			
 			// Write to SSTable while reading data
