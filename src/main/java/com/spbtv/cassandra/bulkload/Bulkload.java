@@ -227,8 +227,8 @@ public class Bulkload {
 					// set partitioner if needed
 					// default is Murmur3Partitioner so set if you use different
 					// one.
-					// .withPartitioner(new Murmur3Partitioner());
-					.withPartitioner(new RandomPartitioner());
+					.withPartitioner(new Murmur3Partitioner());
+					// .withPartitioner(new RandomPartitioner());
 
 			CQLSSTableWriter writer = builder.build();
 			
