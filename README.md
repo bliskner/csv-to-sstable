@@ -54,6 +54,8 @@ Cassandra column type  | Example CSV column
 text   | 'My Little Text'
 float  | '8.97'
 int    | '3'
+bigint | '9223372036854775807'
+timestamp | '1470371123867'
 boolean | 'True'
 set&lt;text&gt; | '["first", "second", "third"]'
 
