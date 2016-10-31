@@ -180,7 +180,6 @@ public class Bulkload {
 			insert_options = args[5];
 		}
 		
-		
 		String schema = null;
 		try {
 			schema = readFile(schema_path, StandardCharsets.UTF_8).replace("\n", " ").replace("\r", " ");
