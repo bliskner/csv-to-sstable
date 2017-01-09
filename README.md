@@ -57,6 +57,7 @@ int    | '3'
 bigint | '9223372036854775807'
 timestamp | '1470371123867'
 boolean | 'True'
+blob | '0x123cf1'  # hex string using https://docs.datastax.com/en/drivers/java/2.0/com/datastax/driver/core/utils/Bytes.html#fromHexString-java.lang.String-
 set&lt;text&gt; | '["first", "second", "third"]'
 
 

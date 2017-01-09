@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -28,6 +29,7 @@ import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.RandomPartitioner;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.io.sstable.CQLSSTableWriter;
+import com.datastax.driver.core.utils.Bytes;
 
 import com.google.common.base.Joiner;
 
@@ -116,6 +118,8 @@ public class Bulkload {
 			return null;
 		}
 		switch(type.toLowerCase()) {
+			case "blob":
+				return Bytes.fromHexString(value);
 			case "text":
 				return value;
 			case "float":
