@@ -2,7 +2,13 @@
 
 # CSV to Cassandra SSTable
 
-Converts a CSV file into SSTables that can be bulkloaded into a Cassandra cluster
+Converts a CSV file into SSTables that can be bulkloaded into a Cassandra cluster using the sstableloader
+
+## changelog
+
+- [2017-01-23] 
+  - added support for reading files from stdin
+  - added rudimental tests
 
 ## Installation
 
@@ -10,59 +16,87 @@ Make sure that maven is installed on your system. Then to build the jar file, ru
 
     $ ./build
 
-## Usage
+## Prerequisites
 
-When running csv-to-sstable.jar, you need to specify the keyspace for which you want to generate the SSTables, the absolute path to a CQL file containing the "TABLE CREATE" definition of the Cassandra table that you want to populate and the absolute path to your CSV file:
+csv-to-sstable.jar needs a few things in order to run:
 
-    $ java -jar csv-to-sstable.jar <keyspace> <absolute/path/to/schema.cql> <absolute/path/to/input.csv> <absolute/path/to/output/dir> [optional csv prefs]
+- a properties file
+- a keyspace definition
+- a table definition
+- command line arguments
+- csv file as input
+- space on your disk to store the resulting sstable
 
-Optionally, you can pass CSV Preferences in JSON format. Omitting this parameter is equivalent to passing the following default preferences:
-    
-    $ java -jar csv-to-sstable.jar <keyspace> <absolute/path/to/schema.cql> <absolute/path/to/input.csv> <absolute/path/to/output/dir> '{"col_sep":",", "quote_char":"\""}'
+## The properties file
 
-Note that the quotes in your JSON must be escaped (as in the example above) in order to be passed on the command line.
-
-## Example
-
-Suppose you would like to populate a Cassandra table `my_table` within a keyspace `my_keyspace`.  The CQL definition of `my_table` is stored in `~/my_table.cql` and might look like this:
-
-```cql
-CREATE TABLE my_keyspace.my_table (
-    my_column1 text,
-    my_column2 int,
-    my_column3 set<text>,
-    my_column4 timestamp,
-    PRIMARY KEY (my_column2, my_column1)
-);
+```
+cat > your/properties << 'EOF'
+keyspace = csv2sstable_test
+keyspace_definition_file = your/keyspace.cql
+table_definition_file = your/table.cql
+# csv_preferences as a json encoded string
+csv_preferences = {"col_sep": ",", "quote_char": "\\""}
+csv_header = timestamp_field,text_field,float_field,int_field,bigint_field,boolean_field
+# 1day
+ttl = 86400
+timestamp = 1484921269
+EOF
 ```
 
-Assuming you want to use a CSV file `my_csv.csv` in your home directory to populate your table, you can run:
+Some properties from the property file can be left empty, but should not be entirely removed.
+You can either have the header definition within the properties or within the fist line of the file (never both).
 
-    $ java -jar csv-to-sstable.jar my_keyspace /Users/home/my_table.cql /Users/home/my_csv.csv /Users/home/sstables
+## The keyspace definition
 
+```
+cat > your/keyspace.cql << 'EOF'
+CREATE KEYSPACE csv2sstable_test WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': '3', 'dc2': '1'}  AND durable_writes = true;
+EOF
+```
+
+## The table definition and supported column types
+
+```
+cat > ${tmpdir}/table.cql << 'EOF'
+CREATE TABLE my_keyspace.my_table (
+    my_column1 timestamp,
+    my_column2 text,
+    my_column3 float,
+    my_column4 int,
+    my_column5 bigint,
+    my_column6 boolean,
+    PRIMARY KEY ((my_column2, my_column1), my_column3)
+);
+EOF
+```
+
+## Command line arguments
+
+    $ java -Xmx1g -jar ./csv-to-sstable.jar path/to/your/properties csv/input/path sstable/output/path
+
+csv-to-sstable is able to also read your file from stdin,
+making things like this possible:
+
+    $ lz4 -d /path/to/your/csv.lz4 | java -Xmx1g -jar ./csv-to-sstable.jar ./your.properties - sstable/output/path
+
+## How to get the sstables loaded into cassandra
 
 After the SSTables have been generated, you can bulkload them into Cassandra by using sstableloader. Assuming that you have a running local Cassandra cluster installed in ~/cassandra, run:
 
     $ ~/cassandra/bin/sstableloader -d localhost Users/home/sstables/my_keyspace/my_table
 
-## Supported column types:
+## What should i do if i encounter problems and things don't work?
 
-Currently, only a limited number of column types are supported:
-
-Cassandra column type  | Example CSV column
----------------------- | --------------------
-text   | 'My Little Text'
-float  | '8.97'
-int    | '3'
-bigint | '9223372036854775807'
-timestamp | '1470371123867'
-boolean | 'True'
-set&lt;text&gt; | '["first", "second", "third"]'
-
+you may want to check the ./test.sh script,
+if this does not help and you can not fix it (see below),
+please let me know
+https://github.com/bliskner/csv-to-sstable/issues
 
 ## Contributing
 
-1. Fork it ( https://github.com/SPBTV/csv-to-sstable/fork )
+(changed forking path because it seems the the original project is dead)
+
+1. Fork it ( https://github.com/bliskner/csv-to-sstable/fork )
 2. Create your feature branch (`git checkout -b feature/my-new-feature`)
 3. Commit your changes (`git commit -am 'Add some feature'`)
 4. Push to the branch (`git push origin feature/my-new-feature`)

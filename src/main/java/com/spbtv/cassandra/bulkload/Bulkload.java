@@ -3,6 +3,7 @@ package com.spbtv.cassandra.bulkload;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.io.InputStreamReader;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -16,6 +17,9 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.Date;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.util.Properties;
 
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
@@ -32,21 +36,21 @@ import org.apache.cassandra.io.sstable.CQLSSTableWriter;
 import com.google.common.base.Joiner;
 
 /**
- * Usage: java bulkload.BulkLoad <keyspace> <absolute/path/to/schema.cql> <absolute/path/to/input.csv> <absolute/path/to/output/dir> [optional csv prefs in JSON - default is "{\"col_sep\":\",\", \"quote_char\":\"'\"}" ]
+ * Usage: please see project/readme.md for usage details
  */
 public class Bulkload {
 	
 	private static final CsvPreference SINGLE_QUOTED_COMMA_DELIMITED = new CsvPreference.Builder(
 			'\'', ',', "\n").build();
 
-	private static String readFile(String path, Charset encoding)
-			throws IOException {
+	private static String readFile(String path, Charset encoding) throws IOException {
 		byte[] encoded = Files.readAllBytes(Paths.get(path));
 		return new String(encoded, encoding);
 	}
 	
-	private static Map<String, String> extractColumns(String schema) 
-	{
+	private static Map<String, String> extractColumns(String schema) {
+		System.out.println(schema);
+
 		Map<String, String> cols = new HashMap<>();
 		Pattern columnsPattern = Pattern.compile(".*?\\((.*?)(?:,\\s*PRIMARY KEY.*)?\\).*");
 		Matcher m = columnsPattern.matcher(schema);
@@ -90,7 +94,6 @@ public class Bulkload {
 			primary.add(m.group(1));
 			return primary;
 		} 
-		
 		
 		throw new RuntimeException("Could not extract primary columns from provided schema.");
 	}
@@ -153,33 +156,96 @@ public class Bulkload {
 		return new CsvPreference.Builder(quote_char, col_sep, "\n").build();
 	}
 
+	private static Properties ParseProperties(String properties_file){
+		Properties prop = new Properties();
+		InputStream input = null;
+
+		try {
+			input = new FileInputStream(properties_file);
+
+			// load a properties file
+			prop.load(input);
+
+		} catch (IOException ex) {
+			ex.printStackTrace();
+		} finally {
+			if (input != null) {
+				try {
+					input.close();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+		}
+		return prop;
+	}
+
 	public static void main(String[] args) {
-		if (args.length < 4) {
-			System.out.println("usage: java bulkload.BulkLoad <keyspace> <path/to/schema.cql> <path/to/input.csv> <path/to/output/dir> [optional csv prefs json - default is {\"col_sep\":\",\", \"quote_char\":\"'\"} ]");
+		// checking for presence of input parameters
+		// System.out.println("arguments supplied: "+args.length);
+		// for ( int i=0; i<args.length; i++ ){
+		// 	System.out.println("args["+i+"] = "+args[i]);
+		// }
+
+		if (args.length < 2) {
+			// TODO
+			//  ${csv_to_sstable_jar} ${csvfile} ${csvfile}.sstable
+			System.out.println("please consult https://github.com/bliskner/csv-to-sstable/ for usage details");
 			return;
 		}
 
-		String keyspace = args[0];
-		String schema_path = args[1];
-		String csv_path = args[2];
-		String output_path = args[3];
-		
-		CsvPreference csv_prefs = SINGLE_QUOTED_COMMA_DELIMITED;
-		if (args.length >= 5) {
-			try {
-				csv_prefs = parseCsvPrefs(args[4]);
-			} catch (Exception e) {
-				e.printStackTrace();
-				throw new RuntimeException("Cannot parse provided csv prefs: " + args[4] + ".");
-			}
+		// loading the properties file
+		System.out.println("args[0]: "+args[0]);
+		Properties properties = null;
+		File f = new File(args[0]);
+		if(f.exists() && !f.isDirectory()) { 
+			properties = ParseProperties(args[0]);
+		} else {
+			// System.out.println("ERROR: properties file "+args[0]+" does not exist or is not accessible");
+			return;
 		}
 
-		String insert_options = "";
-		// grabbing cql insert options like ttl and timestamp
-		if (args.length >= 6){
-			insert_options = args[5];
-		}
+		String keyspace = properties.getProperty("keyspace");
+		String schema_path = properties.getProperty("table_definition_file");
+		String csv_path = args[1];
+		String output_path = args[2];
 		
+		// defining csv preferences
+		CsvPreference csv_prefs = SINGLE_QUOTED_COMMA_DELIMITED;
+		System.out.println("csv_prefs: "+properties.getProperty("csv_preferences"));
+		String prefs = properties.getProperty("csv_preferences");
+		
+		try {
+			csv_prefs = parseCsvPrefs(prefs);
+		} catch (Exception e) {
+			e.printStackTrace();
+			throw new RuntimeException("Cannot parse provided csv prefs: " + args[4] + ".");
+		}
+
+		// building the insert options
+		String ttl = properties.getProperty("ttl");
+		String timestamp = properties.getProperty("timestamp");
+		String insert_options = "";
+
+		if ( ttl.length() != 0 && timestamp.length() !=0 ){
+			// insert_options = "using ttl \""+ttl+"\" and timestamp \""+timestamp+"\"";
+			insert_options = "using ttl "+ttl+" and timestamp "+timestamp;
+		} 
+
+		System.out.println("insert-options: "+insert_options);
+
+		// the headers are either included in the arguments or read from file
+		// if the headers are included in the file
+		// they are extracted once we read the file
+		String [] header = null;
+
+		// System.out.println("header-length: "+properties.getProperty("csv_header").length());
+
+		if ( properties.getProperty("csv_header").length() != 0 ){
+			header = properties.getProperty("csv_header").split(",");
+		}
+
+		// read schema from file
 		String schema = null;
 		try {
 			schema = readFile(schema_path, StandardCharsets.UTF_8).replace("\n", " ").replace("\r", " ");
@@ -204,46 +270,72 @@ public class Bulkload {
 					+ outputDir);
 		}
 
-		try (
-			BufferedReader reader = new BufferedReader(new FileReader(csv_path));
-			CsvListReader csvReader = new CsvListReader(reader,csv_prefs)) {
-			
-			String [] header = csvReader.getHeader(true);
+		// reading input either from stdin or csvfile depending on the options passed
+		BufferedReader reader = null;
 
-			String insert_stmt = String.format("INSERT INTO %s.%s ("
-					+ Joiner.on(", ").join(header)
-					+ ") VALUES (" + new String(new char[header.length - 1]).replace("\0", "?, ")
-					+ "?) %s", keyspace, table, insert_options);
+		if( csv_path.equals("-") ){
+			// reading from stdin
+			reader = new BufferedReader(new InputStreamReader(System.in));
+		} else {
+			// reading from file
+			try {
+				reader = new BufferedReader(new FileReader(csv_path));
+			} catch (IOException e){
+				e.printStackTrace();
+			}
+		}
+		
+		// parsing csv
+		CsvListReader csvReader = new CsvListReader(reader,csv_prefs);
+		
+		// read header from file if not already specified within the property file
+		if ( header == null ){
+			try {
+				header = csvReader.getHeader(true);
+			} catch (IOException e){
+				e.printStackTrace();
+			}
+		}
 
-			// Prepare SSTable writer
-			CQLSSTableWriter.Builder builder = CQLSSTableWriter.builder();
-			// set output directory
-			builder.inDirectory(outputDir)
-			// set target schema
-					.forTable(schema)
-					// set CQL statement to put data
-					.using(insert_stmt)
-					// set partitioner if needed
-					// default is Murmur3Partitioner so set if you use different
-					// one.
-					.withPartitioner(new Murmur3Partitioner());
-					// .withPartitioner(new RandomPartitioner());
+		// here comes the insert statement
+		String insert_stmt = String.format("INSERT INTO %s.%s ("
+				+ Joiner.on(", ").join(header)
+				+ ") VALUES (" + new String(new char[header.length - 1]).replace("\0", "?, ")
+				+ "?) %s", keyspace, table, insert_options);
 
-			CQLSSTableWriter writer = builder.build();
-			
-			// Write to SSTable while reading data
-			List<String> line;
+		// System.out.println("header: "+header);
+		// System.out.println("insert-statement: "+insert_stmt);
+
+		// Prepare SSTable writer
+		CQLSSTableWriter.Builder builder = CQLSSTableWriter.builder();
+		// set output directory
+		builder.inDirectory(outputDir)
+		// set target schema
+				.forTable(schema)
+				// set CQL statement to put data
+				.using(insert_stmt)
+				// set partitioner if needed
+				// default is Murmur3Partitioner so set if you use different
+				// one.
+				.withPartitioner(new Murmur3Partitioner());
+				// .withPartitioner(new RandomPartitioner());
+
+		// Write to SSTable while reading data
+		CQLSSTableWriter writer = builder.build();
+		List<String> line;
+		try {
 			while ((line = csvReader.read()) != null) {
 				Map<String, Object> row = new HashMap<>();
+				String l = null;
+
 				for(int i = 0; i < header.length; i++) {
 					row.put(header[i], parse(line.get(i), columns.get(header[i]), primaryColumns.contains(header[i])));
 				}
-				writer.addRow(row);
+			writer.addRow(row);
 			}
-			
+
 			writer.close();	
-			
-		} catch (InvalidRequestException | IOException e) {
+		} catch (IOException e){
 			e.printStackTrace();
 		}
 
